@@ -42,7 +42,7 @@ struct
     Nodejs.Child_process.async_exec (Opam.with_eval_env name) options
     |> Promise_result.of_js_promise
     |> Promise_result.catch Promise_result.resolve_error
-    |> Promise_result.map_error (Fun.const error_message)
+    |> Promise_result.log_and_map_error (Fun.const error_message)
   ;;
 end
 
@@ -80,7 +80,7 @@ struct
     Nodejs.Child_process.async_exec (Opam.with_eval_env name) options
     |> Promise_result.of_js_promise
     |> Promise_result.catch Promise_result.resolve_error
-    |> Promise_result.map_error (Fun.const error_message)
+    |> Promise_result.log_and_map_error (Fun.const error_message)
   ;;
 end
 
@@ -113,10 +113,10 @@ module Dune_project = struct
          String_map.empty
   ;;
 
-  type t = { name : string; depends : Dependency.t String_map.t }
+  type t = { name : string; is_mlx : bool; depends : Dependency.t String_map.t }
 
-  let empty = { name = ""; depends = default_dependencies }
-  let make ~name ~depends = { name; depends }
+  let empty = { name = ""; depends = default_dependencies; is_mlx = false }
+  let make ~name ~depends = { name; depends; is_mlx = false }
   let set_name name dune_project = { dune_project with name }
 
   let add_dependency (dependency : Dependency.t) dune_project =
@@ -133,6 +133,7 @@ module Dune_project = struct
   let to_json dune_project =
     let dict = Js.Dict.empty () in
     Js.Dict.set dict "name" (Js.Json.string dune_project.name);
+    Js.Dict.set dict "is_mlx" (Js.Json.boolean dune_project.is_mlx);
     let depends =
       String_map.to_list dune_project.depends
       |> List.map (fun (key, (dependency : Dependency.t)) ->
@@ -148,10 +149,10 @@ module Dune_project = struct
     Js.Json.object_ dict
   ;;
 
-  let template ~project_name ~project_directory =
+  let template ~project_name ~project_directory ~is_mlx =
     let template_directory = Node.Path.join [| project_directory; "./" |] in
     Template.make ~name:"dune-project.tmpl"
-      ~value:{ empty with name = project_name }
+      ~value:{ empty with name = project_name; is_mlx }
       ~dir:template_directory ~to_json
   ;;
 end
@@ -444,6 +445,26 @@ module Dune_file = struct
     |> add_library
          (Library.empty |> Library.set_alias "app"
          |> Library.set_modes "melange"
+         |> Library.add_libraries libraries
+         |> Library.add_ppxs ppxs)
+  ;;
+
+  let test_library (configuration : Configuration.t) =
+    let libraries, ppxs =
+      match configuration.is_react_app with
+      | true ->
+          ( [
+              "melange-fest";
+              "melange-fest.dom";
+              "melange-testing-library.dom";
+              "melange-testing-library.react";
+            ],
+            [ "melange.ppx"; "reason-react-ppx" ] )
+      | false -> ([ "melange-fest" ], [ "melange.ppx" ])
+    in
+    empty
+    |> add_library
+         (Library.empty
          |> Library.add_libraries libraries
          |> Library.add_ppxs ppxs)
   ;;
